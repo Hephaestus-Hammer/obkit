@@ -19,7 +19,7 @@ pip install obkit
 ### API
 
 ```python
-from obkit.logger import init_logger, emit
+from obkit.logger import init_logger, emit, phase
 
 init_logger("/path/to/logs")
 ```
@@ -44,6 +44,25 @@ timestamp, PID, and hostname.
 
 Returns `True` on success, `False` on I/O failure (never raises on I/O).
 Raises `ValueError` on bad arguments.
+
+### `phase(name, sync=None)`
+
+A context manager that emits `start` on entry and `end` on exit, also
+when the block raises. It yields a dict; whatever the block puts in it
+is written as the `end` record's `attrs`.
+
+```python
+from obkit.logger import phase
+
+with phase("pca", sync=cupy.cuda.Device().synchronize) as attrs:
+    run_pca()
+    attrs["n_comps"] = 50
+```
+
+`sync` is called just before the `end` event. Use it for asynchronous
+work such as GPU kernels, so the phase ends when the work does rather
+than when it was queued. If `sync` fails, the error is printed to
+stderr and the `end` event is still written.
 
 ### Example
 

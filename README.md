@@ -11,7 +11,7 @@ dependencies.
 | module   | purpose |
 |----------|---------|
 | `logger` | Structured JSONL lifecycle event logging — drop phase-boundary anchors into a log file so downstream tooling can attribute profiler samples to named phases of a rule. [Wire format spec.](docs/spec-logger.md) |
-| `prof`   | Parse and align profiler output (denet, Snakemake bench files) with logger events for per-phase resource attribution. *(in progress)* |
+| `prof`   | Parse and align profiler output (denet, Snakemake bench files) with logger events for per-phase resource attribution. Python done; R in progress. |
 
 ## Language implementations
 
@@ -21,7 +21,7 @@ dependencies.
 
 ```python
 from obkit.logger import init_logger, emit
-from obkit.prof import ...       # coming soon
+from obkit.prof import load_events, load_denet, attribute, summarise
 ```
 
 Zero dependencies — pure stdlib.
@@ -59,8 +59,8 @@ devtools::install("r/obkit")
 
 ```
 python/obkit/
-  logger/      # submodule: init_logger, emit
-  prof/        # submodule: (in progress)
+  logger/      # submodule: init_logger, emit, phase
+  prof/        # submodule: load_events, load_denet, attribute, summarise
 r/obkit/
   R/
     logger.R   # logger_init, logger_emit

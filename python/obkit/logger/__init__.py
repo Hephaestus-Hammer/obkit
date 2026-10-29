@@ -2,6 +2,7 @@ import json
 import os
 import socket
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -59,6 +60,35 @@ def emit(event, phase, attrs=None):
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(line + "\n")
         return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - logging must never crash the module
         print(f"obkit: emit() write failed: {e}", file=sys.stderr)
         return False
+
+
+@contextmanager
+def phase(name, sync=None):
+    """Emit ``start``/``end`` events around a block.
+
+    Yields a dict; whatever the block puts in it is logged with the ``end`` event::
+
+        with phase("load") as attrs:
+            adata = load(path)
+            attrs["n_cells"] = adata.n_obs
+
+    ``sync``: a callable run before the ``end`` event, e.g.
+    ``cupy.cuda.Device().synchronize``. GPU work is asynchronous: without it a phase
+    can end while its kernels still run, and their time shows up in the next phase.
+    If ``sync`` raises, a warning is printed and the ``end`` event is still written.
+    The ``end`` event is written even if the block raises.
+    """
+    attrs = {}
+    emit(name, "start")
+    try:
+        yield attrs
+    finally:
+        if sync is not None:
+            try:
+                sync()
+            except Exception as e:  # noqa: BLE001 - a failed sync must not lose the end event
+                print(f"obkit: phase({name!r}) sync failed: {e}", file=sys.stderr)
+        emit(name, "end", attrs=attrs or None)

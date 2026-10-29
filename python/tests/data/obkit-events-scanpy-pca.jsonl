@@ -1,0 +1,6 @@
+{"ts":"2026-10-29T10:27:20.866Z","event":"load","phase":"start","pid":620,"host":"vm"}
+{"ts":"2026-10-29T10:27:20.872Z","event":"load","phase":"end","pid":620,"host":"vm","attrs":{"n_cells":600,"n_genes":300}}
+{"ts":"2026-10-29T10:27:20.873Z","event":"pca","phase":"start","pid":620,"host":"vm"}
+{"ts":"2026-10-29T10:27:20.986Z","event":"pca","phase":"end","pid":620,"host":"vm","attrs":{"solver":"arpack","n_components":20}}
+{"ts":"2026-10-29T10:27:20.986Z","event":"write","phase":"start","pid":620,"host":"vm"}
+{"ts":"2026-10-29T10:27:20.995Z","event":"write","phase":"end","pid":620,"host":"vm"}
