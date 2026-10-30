@@ -106,30 +106,41 @@ def load_events(path):
 def _gpu(record, aggregated):
     """(utilisation %, memory bytes) from one sample's GPU block, or (None, None).
 
-    denet 0.10.3 writes NVML metrics under ``parent.gpu.system_metrics`` (device-wide
-    ``memory_used``); its docs show ``aggregated.gpu.devices`` with the process's own
-    ``process_memory_usage``. Both are read; the process's own memory is preferred.
+    denet 0.10.3 writes ``gpu`` under ``parent`` and ``aggregated``, with
+    ``process_data`` (per monitored PID: ``gpu_utilization``, ``memory_usage``) when
+    NVML can see the process, and ``system_metrics`` (per device:
+    ``system_utilization_gpu``, ``memory_used``) always. The process's own numbers
+    are preferred; else the devices' (which include anything else on the GPU).
+    An older/doc layout (``devices`` with ``process_memory_usage``,
+    ``max_gpu_utilization``) is read too.
     """
-    for g in ((record.get("parent") or {}).get("gpu"), (aggregated or {}).get("gpu")):
+
+    def vals(rows, *keys):
+        out = []
+        for d in rows:
+            for k in keys:
+                if isinstance(d, dict) and d.get(k) is not None:
+                    out.append(d[k])
+                    break
+        return out
+
+    for g in ((aggregated or {}).get("gpu"), (record.get("parent") or {}).get("gpu")):
         if not isinstance(g, dict) or not g:
             continue
+        procs = g.get("process_data") or []
         devs = g.get("system_metrics") or g.get("devices") or []
+        p_util = vals(procs, "gpu_utilization")
+        p_mem = vals(procs, "memory_usage") or vals(devs, "process_memory_usage")
+        d_util = vals(
+            devs, "system_utilization_gpu", "utilization_gpu", "gpu_utilization"
+        )
+        d_mem = vals(devs, "memory_used")
         util = g.get("max_gpu_utilization")
         if util is None:
-            us = [d.get("utilization_gpu", d.get("gpu_utilization")) for d in devs]
-            us = [u for u in us if u is not None]
-            util = max(us) if us else None
-        own = [
-            d["process_memory_usage"]
-            for d in devs
-            if d.get("process_memory_usage") is not None
-        ]
-        mem = sum(own) if own else g.get("total_memory_used")
-        if mem is None and devs:
-            used = [
-                d.get("memory_used") for d in devs if d.get("memory_used") is not None
-            ]
-            mem = sum(used) if used else None
+            util = sum(p_util) if p_util else (max(d_util) if d_util else None)
+        mem = sum(p_mem) if p_mem else g.get("total_memory_used")
+        if mem is None and d_mem:
+            mem = sum(d_mem)
         return util, mem
     return None, None
 
@@ -244,6 +255,7 @@ def _stats(intervals, a, b):
         "peak_rss_mb": peak_rss / 1024.0 if n else math.nan,
         "peak_threads": peak_threads if n else None,
         "gpu_util_mean": gpu_util / gpu_w if gpu_w > 0 else math.nan,
+        "_gpu_ms": gpu_w,  # weight for combining windows; dropped from public rows
         "gpu_mem_peak_mb": gpu_mem / 2**20 if gpu_mem is not None else math.nan,
     }
 
@@ -262,6 +274,10 @@ def _uncovered(spans, a, b):
     if cur < b:
         gaps.append((cur, b))
     return [(x, y) for x, y in gaps if y > x]
+
+
+def _public(stats):
+    return {k: v for k, v in stats.items() if not k.startswith("_")}
 
 
 def attribute(events, trace, pid=None):
@@ -286,7 +302,7 @@ def attribute(events, trace, pid=None):
                 "pid": e["pid"],
                 "start_ms": e["start_ms"],
                 "end_ms": e["end_ms"],
-                **_stats(ivs, e["start_ms"], e["end_ms"]),
+                **_public(_stats(ivs, e["start_ms"], e["end_ms"])),
                 "attrs": e.get("attrs") or {},
             }
         )
@@ -297,6 +313,13 @@ def attribute(events, trace, pid=None):
         parts = [_stats(ivs, x, y) for x, y in gaps]
         dur = sum(p["duration_s"] for p in parts)
         cpu = sum(p["cpu_s"] for p in parts)
+        gpu_ms = sum(p["_gpu_ms"] for p in parts)
+        gpu_mean = (
+            sum(p["gpu_util_mean"] * p["_gpu_ms"] for p in parts if p["_gpu_ms"] > 0)
+            / gpu_ms
+            if gpu_ms > 0
+            else math.nan
+        )
 
         def peak(key):
             vals = [
@@ -320,7 +343,7 @@ def attribute(events, trace, pid=None):
                 "peak_cores": peak("peak_cores"),
                 "peak_rss_mb": peak("peak_rss_mb"),
                 "peak_threads": peak("peak_threads"),
-                "gpu_util_mean": math.nan,
+                "gpu_util_mean": gpu_mean,
                 "gpu_mem_peak_mb": peak("gpu_mem_peak_mb"),
                 "attrs": {},
             }
@@ -337,6 +360,6 @@ def summarise(trace):
         "pid": trace["pid"],
         "start_ms": trace["t0_ms"],
         "end_ms": trace["end_ms"],
-        **_stats(_intervals(trace), trace["t0_ms"], trace["end_ms"]),
+        **_public(_stats(_intervals(trace), trace["t0_ms"], trace["end_ms"])),
         "attrs": {},
     }

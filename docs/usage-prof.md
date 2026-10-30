@@ -58,9 +58,12 @@ Reads a denet `--json` trace (tested with denet 0.10.3: `metadata`,
 `{t0_ms, end_ms, pid, cmd, samples}` or `None` if the file has no
 samples. Each sample has `ts_ms`, `cpu_usage` (%; 100 = one busy core;
 the process and its children), `mem_rss_kb`, `thread_count`, and, when
-denet ran with `--gpu`, `gpu_util` (%) and `gpu_mem_bytes`. GPU memory
-is the process's own where NVML reports it, otherwise the device total
-(which counts other processes on that GPU).
+denet ran with `--gpu`, `gpu_util` (%) and `gpu_mem_bytes`. Both are
+the process's own (`process_data`) where NVML can see the process, and
+otherwise the device's (`system_metrics`: `system_utilization_gpu`,
+`memory_used`), which counts everything else on that GPU too. In
+containers and cgroups NVML often cannot match the PID
+(`collection_method: "none"`), so expect device-wide numbers there.
 
 ### `attribute(events, trace, pid=None)`
 

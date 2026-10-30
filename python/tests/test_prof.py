@@ -57,6 +57,18 @@ def denet_trace(d, cpu=200.0, seconds=10, gpu=None, layout="system_metrics", tai
             rec["parent"]["gpu"] = {
                 "system_metrics": [{"memory_used": gpu * 2**20, "utilization_gpu": 50}]
             }
+        if gpu is not None and layout == "denet-0.10.3":
+            dev = {
+                "device_index": 0,
+                "system_utilization_gpu": 30,
+                "memory_used": 4 * gpu * 2**20,
+            }
+            g = {"system_metrics": [dev], "process_data": [], "has_process_data": False}
+            if i > 1:  # NVML sees the process from the second sample on
+                g["process_data"] = [
+                    {"pid": 7, "gpu_utilization": 70, "memory_usage": gpu * 2**20}
+                ]
+            rec["parent"]["gpu"] = a["gpu"] = g
         if gpu is not None and layout == "devices":
             a["gpu"] = {
                 "devices": [{"process_memory_usage": gpu * 2**20}],
@@ -267,3 +279,23 @@ def test_load_snakemake_benchmark_na_and_empty():
         open(p, "w").close()
         assert load_snakemake_benchmark(p) is None
     assert rec["s"] == 3.2 and rec["max_rss"] is None and rec["h:m:s"] == "0:00:03"
+
+
+def test_load_denet_reads_denet_0_10_3_gpu_layout():
+    # system_utilization_gpu / memory_used per device; process_data when NVML sees the pid
+    with tempfile.TemporaryDirectory() as d:
+        t = load_denet(denet_trace(d, seconds=3, gpu=256, layout="denet-0.10.3"))
+    first, later = t["samples"][0], t["samples"][1]
+    assert first["gpu_util"] == 30 and first["gpu_mem_bytes"] == 1024 * 2**20  # device
+    assert later["gpu_util"] == 70 and later["gpu_mem_bytes"] == 256 * 2**20  # process
+
+
+def test_unphased_row_has_gpu_utilisation():
+    with tempfile.TemporaryDirectory() as d:
+        trace = load_denet(denet_trace(d, gpu=256, layout="denet-0.10.3"))
+        rows = attribute(load_events(events(d, [("compute", 4, 6)])), trace)
+    rest = rows[-1]
+    # 0-4 s and 6-10 s; sample 1 (0-1 s) is device-wide 30 %, the rest process 70 %
+    assert rest["event"] == "(unphased)"
+    assert rest["gpu_util_mean"] == pytest.approx((30 * 1 + 70 * 7) / 8)
+    assert "_gpu_ms" not in rest and "_gpu_ms" not in summarise(trace)
